@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Mon Chat en Temps Réel</title>
+  <!-- Inclusion de Socket.IO -->
+  <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    #chat {
+      border: 1px solid #ccc;
+      padding: 10px;
+      max-width: 400px;
+      height: 300px;
+      overflow-y: auto;
+    }
+    #messageInput {
+      width: 300px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Bienvenue sur le Chat</h1>
+  <div id="chat"></div>
+  <input id="messageInput" type="text" placeholder="Écrivez votre message..."/>
+  <button id="sendBtn">Envoyer</button>
+
+  <script>
+    // Connexion au serveur SocketIO
+    const socket = io();
+
+    const chatDiv = document.getElementById('chat');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    // Réception d'un message
+    socket.on('message', (msg) => {
+      addMessage(msg);
+    });
+
+    // Réception d'un message du serveur
+    socket.on('server_message', (msg) => {
+      addMessage("[Serveur] " + msg);
+    });
+
+    // Envoi d'un message en cliquant sur "Envoyer" ou touche Entrée
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (event) => {
+      if(event.key === 'Enter') {
+        sendMessage();
+      }
+    });
+
+    function sendMessage() {
+      const text = messageInput.value.trim();
+      if(text) {
+        socket.send(text);  // émet l'événement 'message'
+        messageInput.value = '';
+      }
+    }
+
+    function addMessage(msg) {
+      const p = document.createElement('p');
+      p.textContent = msg;
+      chatDiv.appendChild(p);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
