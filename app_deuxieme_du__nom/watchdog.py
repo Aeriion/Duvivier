@@ -33,6 +33,9 @@ def stop_process(proc):
             proc.kill()
             proc.wait()
 
+        # On attend un peu pour que l'OS libère le port
+        time.sleep(2)
+
 def sigint_handler(signum, frame):
     print("\n[WatchDog] Interruption clavier. Arrêt de tout.")
     stop_process(principal_proc)

@@ -4,11 +4,25 @@ import sys
 import mmap
 import posix_ipc
 
-# Noms (identiques)
+
+
 TUBE_REQUEST = "/tmp/sp_request"
 TUBE_RESPONSE = "/tmp/sp_response"
 SHM_NAME = "/sp_shm"
 SHM_SIZE = 1024
+
+
+
+BANNED_WORDS = ["méchant", "bar", "insulte"]
+
+def censor_message(original):
+    words = original.split()
+    for i in range(len(words)):
+        w = words[i].lower()
+        if w in BANNED_WORDS:
+            words[i] = "*" * len(words[i])
+    return " ".join(words)
+
 
 def main():
     print("[Secondaire] Démarrage...")
@@ -37,7 +51,6 @@ def main():
                         continue
                     print(f"[Secondaire] Requête reçue: {line}")
 
-                    # Ex: "TRAITER|foo"
                     parts = line.split("|")
                     cmd = parts[0]
                     arg = parts[1] if len(parts) > 1 else ""
@@ -47,20 +60,23 @@ def main():
                     flag = shm_map.read(16).strip(b'\x00').decode()
                     print(f"[Secondaire] Flag en shm: {flag}")
 
-                    if cmd == "TRAITER":
-                        # Simuler un traitement
-                        print("[Secondaire] Simulation de traitement...")
-                        time.sleep(3)
 
-                        # Écrire un message de réponse
+
+                    if cmd == "CENSOR":
+                        # "arg" = "Pseudo###TexteOriginal"
+                        subparts = arg.split("###", 1)
+                        user_pseudo = subparts[0]
+                        raw_msg = subparts[1] if len(subparts) > 1 else ""
+
+                        # On censure
+                        censored = censor_message(raw_msg)
+
+                        # renvoyer "CENSORED|Pseudo###MessageCensure"
                         with open(TUBE_RESPONSE, "w") as resp_tube:
-                            resp_tube.write(f"Resultat pour {arg} = OK\n")
+                            resp_tube.write(f"CENSORED|{user_pseudo}###{censored}\n")
                             resp_tube.flush()
 
-                        # On peut aussi changer le flag
-                        shm_map.seek(0)
-                        shm_map.write(b"DONE")
-                        shm_map.flush()
+
                     else:
                         print("[Secondaire] Commande inconnue.")
     except KeyboardInterrupt:

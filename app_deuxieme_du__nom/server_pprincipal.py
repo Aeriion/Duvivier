@@ -6,6 +6,7 @@ import posix_ipc
 import threading
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, send, emit
+import gevent.server
 
 TUBE_REQUEST = "/tmp/sp_request"
 TUBE_RESPONSE = "/tmp/sp_response"
@@ -67,18 +68,19 @@ def handle_message(msg):
     pseudo = connected_users.get(sid, "Inconnu")
     print(f"[Principal] Message de {pseudo}: {msg}")
 
-    # Diffuser à tous, en préfixant le pseudo
-    emit('message', f"{pseudo}: {msg}", broadcast=True)
+    if len(msg) > 200:
+        msg = msg[:200]  # On tronque
 
-    # Exemple: si le message commence par "!traiter"
-    if msg.startswith("!traiter"):
-        with open(TUBE_REQUEST, "w") as req_tube:
-            req_tube.write("TRAITER|foo\n")
-            req_tube.flush()
-        shm_map.seek(0)
-        shm_map.write(b"REQUESTED")
-        shm_map.flush()
-        print("[Principal] Requête envoyée au secondaire (via tube + shm)")
+    print(f"[Principal] Message de {pseudo}: {msg}")
+
+
+    # Au lieu de diffuser directement, on envoie au secondaire
+    # Commande:  "CENSOR|Pseudo###Message"
+    commande = f"CENSOR|{pseudo}###{msg}"
+    with open(TUBE_REQUEST, "w") as req_tube:
+        req_tube.write(commande + "\n")
+        req_tube.flush()
+    # On n'émet PAS le message tout de suite
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -102,15 +104,38 @@ def check_response_tube():
                 line = line.strip()
                 if line:
                     print(f"[Principal] Reçu depuis le secondaire : {line}")
-                    socketio.emit('message', f"[Secondaire] {line}")
+                    # On sépare la commande, ex "CENSORED|Pseudo###MessageCensure"
+                    parts = line.split("|", 1)
+                    cmd = parts[0]
+                    arg = parts[1] if len(parts) > 1 else ""
+
+                    if cmd == "CENSORED":
+                        # => "Pseudo###MessageCensure"
+                        sub = arg.split("###", 1)
+                        user_pseudo = sub[0]
+                        censored_text = sub[1] if len(sub) > 1 else ""
+
+                        # Diffuser censuré à tous
+                        socketio.emit('message', f"{user_pseudo}: {censored_text}")
+
+                    else:
+                        # Ex: "Resultat pour foo = OK"
+                        # ou tout autre retour
+                        socketio.emit('message', f"[Secondaire] {line}")
 
 def main():
     global shm_map
     shm_map = setup_ipc()
+
+    # On active la réutilisation d'adresse
+    gevent.server.StreamServer.reuse_addr = True
+
+
     t = threading.Thread(target=check_response_tube, daemon=True)
     t.start()
     try:
-        socketio.run(app, host='0.0.0.0', port=3001)
+        socketio.run(app, host='0.0.0.0', port=3014)
+
     except KeyboardInterrupt:
         print("[Principal] Interrompu par Ctrl+C.")
     finally:
@@ -122,6 +147,8 @@ def main():
                     os.unlink(tube)
                 except:
                     pass
+
+
 
 if __name__ == '__main__':
     from flask import request

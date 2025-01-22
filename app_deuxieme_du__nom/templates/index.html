@@ -5,7 +5,7 @@
   <title>Chat Python</title>
   <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
   <style>
-    /* Layout */
+    /* Mise en page globale */
     body {
       margin: 0;
       font-family: Arial, sans-serif;
@@ -17,6 +17,7 @@
       width: 100vw;
       box-sizing: border-box;
     }
+
     /* Écran de login */
     #loginScreen {
       display: flex;
@@ -53,16 +54,23 @@
       padding: 10px;
       overflow-y: auto;
       border-bottom: 1px solid #ccc;
+
+      display: flex;
+      flex-direction: column;
     }
+
     #chatInputBar {
       display: flex;
     }
+
     #chatInput {
       flex: 1;
       padding: 10px;
       border: none;
       outline: none;
+
     }
+
     #sendBtn {
       padding: 10px 16px;
       background: #3b82f6;
@@ -70,8 +78,10 @@
       border: none;
       cursor: pointer;
     }
+
+    /* Liste des utilisateurs (1/3) */
     #usersContainer {
-      flex: 1; /* 1/3 */
+      flex: 1;
       margin: 10px;
       background: #ffffff;
       border-radius: 5px;
@@ -94,23 +104,84 @@
       padding: 5px;
       border-bottom: 1px solid #eee;
     }
+
+    /* Styles pour les bulles de messages */
+    .message-wrapper {
+      max-width: 80%;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      margin-bottom: 14px;
+    }
+    /* Si le même utilisateur envoie plusieurs messages d'affilée,
+       on veut réduire la marge : on pourra ajouter une classe .consecutive */
+    .message-wrapper.consecutive {
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+
+    /* Le pseudo apparaît au-dessus de la bulle */
+    .message-pseudo {
+      font-size: 0.85rem;
+      font-weight: bold;
+      margin-bottom: 3px;
+      color: #333;
+    }
+
+    /* On sépare la bulle (message-row) du contenu (message-content) et de l'heure (message-time) */
+    .message-row {
+      border-radius: 10px;
+      padding: 8px 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      display: flex;             /* on place le contenu et l'heure en flex */
+      flex-direction: column;    /* si on veut l'heure en bas sous le texte */
+      white-space: pre-wrap;     /* forcer le retour à la ligne */
+    }
+    .message-content {
+      flex: 0; /* se place avant l'heure */
+    }
+    /* Heure en bas, plus petit, aligné à droite */
+    .message-time {
+      flex: 0;
+      font-size: 0.7rem;
+      color: #666;
+      text-align: right;
+      margin-top: 2px;
+    }
+    /* Bulle à droite (moi) */
+    .me {
+      align-self: flex-end;
+      background: #bfdbfe; /* bleu clair */
+      color: #333;
+    }
+    /* Bulle à gauche (autres) */
+    .them {
+      align-self: flex-start;
+      background: #e5e7eb; /* gris clair */
+      color: #333;
+    }
   </style>
 </head>
 <body>
+
+  <!-- Ecran de login (pseudo) -->
+
   <div id="loginScreen">
     <div id="loginBox">
       <h2>Entrez votre pseudo</h2>
-      <input type="text" id="pseudoInput" maxlength="20" placeholder="Pseudo (max 20 chars)">
+      <input type="text" id="pseudoInput" maxlength="20" placeholder="Pseudo (max 20 caractères)">
       <button id="loginBtn">Rejoindre</button>
     </div>
   </div>
+
+  <!-- Ecran de chat -->
 
   <div id="chatScreen">
     <div id="chatContainer">
       <div id="chatMessages"></div>
       <div id="chatInputBar">
-        <input type="text" id="chatInput" placeholder="Tapez un message...">
+        <input type="text" id="chatInput" maxlength="200" placeholder="Tapez un message...">
         <button id="sendBtn">Envoyer</button>
+        <span id="charCount">0/200</span>
       </div>
     </div>
     <div id="usersContainer">
@@ -120,6 +191,10 @@
   </div>
 
   <script>
+
+
+
+    // Références DOM
     const loginScreen = document.getElementById('loginScreen');
     const chatScreen = document.getElementById('chatScreen');
     const pseudoInput = document.getElementById('pseudoInput');
@@ -130,36 +205,65 @@
     const sendBtn = document.getElementById('sendBtn');
     const userListElem = document.getElementById('userList');
 
-    // Au départ, on affiche l'écran de login, on cache l'écran de chat
+
+    const charCount = document.getElementById('charCount');
+
+    // Pseudo local -> pour savoir si c'est "moi" ou "eux"
+    let myPseudo = "";
+    let lastSender = ""; // pour savoir si le nouveau message vient du même pseudo
+    let lastSenderPseudoDisplayed = false; // Indique si on a déjà affiché le pseudo pour l'enchaînement courant
+
+    chatInput.addEventListener('input', () => {
+      let currentLen = chatInput.value.length;
+      charCount.textContent = `${currentLen}/200`;
+    });
+
+    // 1) Écran initial: login
     loginScreen.style.display = 'flex';
     chatScreen.style.display = 'none';
 
-    const socket = io('http://localhost:3001');
+    // 2) Connexion Socket.IO
+    const socket = io('http://localhost:3014');
 
+    // 3) Clique sur "Rejoindre" => envoie "join"
     loginBtn.addEventListener('click', () => {
       const pseudo = pseudoInput.value.trim();
       if (pseudo.length === 0) {
         alert("Veuillez saisir un pseudo !");
         return;
       }
-      // On émet l'événement 'join' vers le serveur, avec le pseudo
+      myPseudo = pseudo;
+
+
+      // Emettre l'événement "join" (côté serveur: @socketio.on('join'))
       socket.emit('join', { pseudo });
-      // On bascule l'UI
+      // Switch UI
+
       loginScreen.style.display = 'none';
       chatScreen.style.display = 'flex';
       chatInput.focus();
     });
 
-    // Quand on reçoit un 'message'
+    // 4) Ecoute des événements
+
     socket.on('message', (msg) => {
       addMessage(msg);
     });
 
-    // Quand on reçoit la liste des utilisateurs
+    function updateUserList(users) {
+      userListElem.innerHTML = ''; // Vide la liste
+      users.forEach(pseudo => {
+        const li = document.createElement('li');
+        li.textContent = pseudo;
+        userListElem.appendChild(li);
+      });
+    }
+
     socket.on('user_list', (userArr) => {
       updateUserList(userArr);
     });
 
+    // 5) Envoi message
     sendBtn.addEventListener('click', sendMessage);
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -170,26 +274,79 @@
     function sendMessage() {
       const text = chatInput.value.trim();
       if (text) {
+        // socket.send(...) => alias de socket.emit('message', text)
         socket.send(text);
         chatInput.value = '';
       }
     }
 
-    function addMessage(message) {
-      const div = document.createElement('div');
-      div.textContent = message;
-      chatMessages.appendChild(div);
-      chatMessages.scrollTop = chatMessages.scrollHeight;
+    // 6) Ajout d'un message dans l'interface
+      function addMessage(fullMsg) {
+    // 1) Séparer "pseudo" / "texte"
+    let pseudo = "";
+    let messageText = fullMsg;
+    const idx = fullMsg.indexOf(':');
+    if (idx !== -1) {
+      pseudo = fullMsg.slice(0, idx).trim();
+      messageText = fullMsg.slice(idx + 1).trim();
     }
 
-    function updateUserList(users) {
-      userListElem.innerHTML = '';
-      users.forEach(u => {
-        const li = document.createElement('li');
-        li.textContent = u;
-        userListElem.appendChild(li);
-      });
+    // 2) Création du wrapper
+    const wrapper = document.createElement('div');
+    wrapper.classList.add('message-wrapper');
+
+    // Vérifier si c'est le même pseudo que le message précédent
+    if (pseudo === lastSender) {
+      // -> on ajoute la classe "consecutive" pour réduire l'espace
+      wrapper.classList.add('consecutive');
+      // Et on NE ré-affiche PAS le pseudo
+    } else {
+      // Nouveau pseudo => on affichera le pseudo
+      lastSender = pseudo;
     }
+
+    // 3) Si pseudo != lastSender, on affiche
+    //    => ou plus précisément, si c'est un nouveau pseudo
+    //    => Dans ce code, on vient de mettre lastSender = pseudo
+    //    => Donc on peut comparer "est-ce qu'on a mis .consecutive ou pas?"
+    if (!wrapper.classList.contains('consecutive')) {
+      const pseudoDiv = document.createElement('div');
+      pseudoDiv.classList.add('message-pseudo');
+      pseudoDiv.textContent = pseudo;
+      wrapper.appendChild(pseudoDiv);
+    }
+
+    // 4) On crée la bulle de message
+    const rowDiv = document.createElement('div');
+    rowDiv.classList.add('message-row');
+    if (pseudo === myPseudo) {
+      rowDiv.classList.add('me');
+    } else {
+      rowDiv.classList.add('them');
+    }
+
+    const contentDiv = document.createElement('div');
+    contentDiv.classList.add('message-content');
+    contentDiv.textContent = messageText;
+
+    // 5) L'heure
+    const timeDiv = document.createElement('div');
+    timeDiv.classList.add('message-time');
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    timeDiv.textContent = `${hh}:${mm}`;
+
+    // On assemble
+    rowDiv.appendChild(contentDiv);
+    rowDiv.appendChild(timeDiv);
+    wrapper.appendChild(rowDiv);
+
+    // 6) On l'ajoute à #chatMessages
+    chatMessages.appendChild(wrapper);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
   </script>
 </body>
 </html>
